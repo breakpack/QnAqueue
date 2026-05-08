@@ -1,8 +1,10 @@
 import { CurrentQuestionCard } from './components/CurrentQuestionCard';
+import { MaterialPanel } from './components/MaterialPanel';
 import { MemoPanel } from './components/MemoPanel';
 import { QuestionForm } from './components/QuestionForm';
 import { QuestionList } from './components/QuestionList';
 import { SessionPanel } from './components/SessionPanel';
+import { TimerPanel } from './components/TimerPanel';
 import { useQnaData } from './hooks/useQnaData';
 
 function App() {
@@ -12,6 +14,7 @@ function App() {
     sessionQuestions,
     currentQuestion,
     currentQuestionId,
+    serverOffsetMs,
     createSession,
     selectSession,
     deleteSession,
@@ -19,6 +22,8 @@ function App() {
     deleteQuestion,
     completeCurrentAndAdvance,
     updateMemo,
+    updateMaterial,
+    updateTiming,
   } = useQnaData();
 
   const selectedSessionId = selectedSession?.id ?? null;
@@ -31,6 +36,14 @@ function App() {
         onCreate={createSession}
         onSelect={selectSession}
         onDelete={deleteSession}
+        footer={
+          <TimerPanel
+            disabled={!selectedSession}
+            timing={selectedSession?.timing ?? null}
+            serverOffsetMs={serverOffsetMs}
+            onChange={updateTiming}
+          />
+        }
       />
 
       <main className="workspace">
@@ -55,6 +68,11 @@ function App() {
         <div className="lower-grid">
           <div className="control-stack">
             <QuestionForm disabled={!selectedSession} onAdd={addQuestion} />
+            <MaterialPanel
+              disabled={!selectedSession}
+              material={selectedSession?.material ?? null}
+              onChange={updateMaterial}
+            />
             <MemoPanel disabled={!selectedSession} memo={selectedSession?.memo ?? ''} onChange={updateMemo} />
           </div>
           <QuestionList questions={sessionQuestions} currentQuestionId={currentQuestionId} onDelete={deleteQuestion} />

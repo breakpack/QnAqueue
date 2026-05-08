@@ -5,6 +5,28 @@ export interface PresentationSession {
   title: string;
   createdAt: string;
   memo: string;
+  material: PresentationMaterial | null;
+  timing: PresentationTiming;
+}
+
+export type TimerMode = 'presentation' | 'qna';
+
+export interface PresentationTiming {
+  presentationLimitMinutes: number;
+  qnaLimitMinutes: number;
+  mode: TimerMode;
+  elapsedSeconds: number;
+  isRunning: boolean;
+  startedAt: string | null;
+}
+
+export interface PresentationMaterial {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  uploadedAt: string;
+  dataUrl: string;
 }
 
 export interface Question {

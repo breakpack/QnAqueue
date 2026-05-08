@@ -1,0 +1,12 @@
+services:
+  qna-queue:
+    build: .
+    ports:
+      - "3040:3040"
+    volumes:
+      - qna-data:/app/data
+    environment:
+      - PORT=3040
+
+volumes:
+  qna-data:

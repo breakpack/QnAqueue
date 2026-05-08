@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
-import { localQnaStorage } from '../storage/qnaStorage';
-import type { PresentationSession, QnaData, Question } from '../types';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { localQnaStorage, remoteQnaStorage } from '../storage/qnaStorage';
+import type { PresentationMaterial, PresentationSession, PresentationTiming, QnaData, Question } from '../types';
 import { getNextQuestion } from '../utils/queue';
 
 const createId = () => `${Date.now().toString(36)}-${crypto.randomUUID()}`;
@@ -8,10 +8,47 @@ const now = () => new Date().toISOString();
 
 export function useQnaData() {
   const [data, setData] = useState<QnaData>(() => localQnaStorage.load());
+  const [serverOffsetMs, setServerOffsetMs] = useState(0);
+  const suppressRemoteSaveRef = useRef(false);
+  const saveTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     localQnaStorage.save(data);
+    if (suppressRemoteSaveRef.current) {
+      suppressRemoteSaveRef.current = false;
+      return;
+    }
+
+    if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = window.setTimeout(() => {
+      remoteQnaStorage.save(data).catch(() => undefined);
+    }, 250);
   }, [data]);
+
+  useEffect(() => {
+    let active = true;
+
+    remoteQnaStorage.load().then((payload) => {
+      if (!active || !payload) return;
+      suppressRemoteSaveRef.current = true;
+      setServerOffsetMs(remoteQnaStorage.getServerOffset(payload.serverNow));
+      setData(payload.data);
+      localQnaStorage.save(payload.data);
+    });
+
+    const unsubscribe = remoteQnaStorage.subscribe((remoteData, offset) => {
+      suppressRemoteSaveRef.current = true;
+      setServerOffsetMs(offset);
+      setData(remoteData);
+      localQnaStorage.save(remoteData);
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+      if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current);
+    };
+  }, []);
 
   const selectedSession = useMemo(
     () => data.sessions.find((session) => session.id === data.selectedSessionId) ?? null,
@@ -39,6 +76,15 @@ export function useQnaData() {
       title: trimmed,
       createdAt: now(),
       memo: '',
+      material: null,
+      timing: {
+        presentationLimitMinutes: 10,
+        qnaLimitMinutes: 5,
+        mode: 'presentation',
+        elapsedSeconds: 0,
+        isRunning: false,
+        startedAt: null,
+      },
     };
 
     setData((prev) => ({
@@ -144,12 +190,29 @@ export function useQnaData() {
     }));
   };
 
+  const updateMaterial = (material: PresentationMaterial | null) => {
+    if (!selectedSession) return;
+    setData((prev) => ({
+      ...prev,
+      sessions: prev.sessions.map((session) => (session.id === selectedSession.id ? { ...session, material } : session)),
+    }));
+  };
+
+  const updateTiming = (timing: PresentationTiming) => {
+    if (!selectedSession) return;
+    setData((prev) => ({
+      ...prev,
+      sessions: prev.sessions.map((session) => (session.id === selectedSession.id ? { ...session, timing } : session)),
+    }));
+  };
+
   return {
     sessions: data.sessions,
     selectedSession,
     sessionQuestions,
     currentQuestion,
     currentQuestionId,
+    serverOffsetMs,
     createSession,
     selectSession,
     deleteSession,
@@ -157,5 +220,7 @@ export function useQnaData() {
     deleteQuestion,
     completeCurrentAndAdvance,
     updateMemo,
+    updateMaterial,
+    updateTiming,
   };
 }
