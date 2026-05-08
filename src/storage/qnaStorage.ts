@@ -72,25 +72,45 @@ export const remoteQnaStorage = {
     }
   },
   async save(data: QnaData): Promise<void> {
-    await fetch('/api/state', {
+    const response = await fetch('/api/state', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ data }),
     });
+    if (!response.ok) throw new Error('remote_save_failed');
   },
-  subscribe(onState: (data: QnaData, serverOffsetMs: number) => void): () => void {
+  subscribe(
+    onState: (data: QnaData, serverOffsetMs: number) => void,
+    onStatus?: (status: 'online' | 'offline') => void,
+  ): () => void {
+    let closedByClient = false;
+    let socket: WebSocket | null = null;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
-    socket.addEventListener('message', (event) => {
-      const payload = JSON.parse(event.data) as RemoteStatePayload & { type: string };
-      if (payload.type !== 'state') return;
-      onState(normalizeData(payload.data), getServerOffset(payload.serverNow));
-    });
+    const connect = () => {
+      socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
-    socket.addEventListener('error', () => socket.close());
+      socket.addEventListener('open', () => onStatus?.('online'));
 
-    return () => socket.close();
+      socket.addEventListener('message', (event) => {
+        const payload = JSON.parse(event.data) as RemoteStatePayload & { type: string };
+        if (payload.type !== 'state') return;
+        onState(normalizeData(payload.data), getServerOffset(payload.serverNow));
+      });
+
+      socket.addEventListener('error', () => socket?.close());
+      socket.addEventListener('close', () => {
+        onStatus?.('offline');
+        if (!closedByClient) window.setTimeout(connect, 1500);
+      });
+    };
+
+    connect();
+
+    return () => {
+      closedByClient = true;
+      socket?.close();
+    };
   },
   getServerOffset,
 };

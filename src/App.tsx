@@ -15,6 +15,7 @@ function App() {
     currentQuestion,
     currentQuestionId,
     serverOffsetMs,
+    syncStatus,
     createSession,
     selectSession,
     deleteSession,
@@ -53,6 +54,7 @@ function App() {
             <h2>{selectedSession?.title ?? '발표를 선택하세요'}</h2>
           </div>
           <div className="theme-hint" aria-label="다크모드 지원">
+            <span className={`sync-pill ${syncStatus}`}>{syncStatusLabel(syncStatus)}</span>
             <span>☀</span>
             <span>☾</span>
           </div>
@@ -81,5 +83,13 @@ function App() {
     </div>
   );
 }
+
+const syncStatusLabel = (status: string) => {
+  if (status === 'loading') return '불러오는 중';
+  if (status === 'saving') return '저장 중';
+  if (status === 'online') return '동기화됨';
+  if (status === 'offline') return '오프라인';
+  return '저장 실패';
+};
 
 export default App;

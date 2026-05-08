@@ -235,9 +235,39 @@ h3 {
 }
 
 .theme-hint {
+  align-items: center;
   display: flex;
   gap: 0.4rem;
   color: var(--muted);
+}
+
+.sync-pill {
+  min-height: 1.8rem;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  padding: 0 0.65rem;
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.sync-pill.online {
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
+}
+
+.sync-pill.saving,
+.sync-pill.loading {
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  color: var(--primary-strong);
+}
+
+.sync-pill.offline,
+.sync-pill.error {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
 }
 
 .stage {

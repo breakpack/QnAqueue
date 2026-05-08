@@ -1,52 +1,74 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { localQnaStorage, remoteQnaStorage } from '../storage/qnaStorage';
 import type { PresentationMaterial, PresentationSession, PresentationTiming, QnaData, Question } from '../types';
 import { getNextQuestion } from '../utils/queue';
 
 const createId = () => `${Date.now().toString(36)}-${crypto.randomUUID()}`;
 const now = () => new Date().toISOString();
+type SyncStatus = 'loading' | 'online' | 'saving' | 'offline' | 'error';
 
 export function useQnaData() {
   const [data, setData] = useState<QnaData>(() => localQnaStorage.load());
+  const dataRef = useRef(data);
   const [serverOffsetMs, setServerOffsetMs] = useState(0);
-  const suppressRemoteSaveRef = useRef(false);
-  const saveTimeoutRef = useRef<number | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('loading');
+  const saveVersionRef = useRef(0);
 
   useEffect(() => {
+    dataRef.current = data;
     localQnaStorage.save(data);
-    if (suppressRemoteSaveRef.current) {
-      suppressRemoteSaveRef.current = false;
-      return;
-    }
-
-    if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = window.setTimeout(() => {
-      remoteQnaStorage.save(data).catch(() => undefined);
-    }, 250);
   }, [data]);
+
+  const syncData = useCallback(async (nextData: QnaData) => {
+    const version = saveVersionRef.current + 1;
+    saveVersionRef.current = version;
+    setSyncStatus('saving');
+
+    try {
+      await remoteQnaStorage.save(nextData);
+      if (saveVersionRef.current === version) setSyncStatus('online');
+    } catch {
+      if (saveVersionRef.current === version) setSyncStatus('error');
+    }
+  }, []);
+
+  const updateData = useCallback((updater: (prev: QnaData) => QnaData) => {
+    setData((prev) => {
+      const next = updater(prev);
+      dataRef.current = next;
+      localQnaStorage.save(next);
+      void syncData(next);
+      return next;
+    });
+  }, [syncData]);
 
   useEffect(() => {
     let active = true;
 
     remoteQnaStorage.load().then((payload) => {
-      if (!active || !payload) return;
-      suppressRemoteSaveRef.current = true;
+      if (!active) return;
+      if (!payload) {
+        setSyncStatus('offline');
+        return;
+      }
       setServerOffsetMs(remoteQnaStorage.getServerOffset(payload.serverNow));
+      dataRef.current = payload.data;
       setData(payload.data);
       localQnaStorage.save(payload.data);
+      setSyncStatus('online');
     });
 
     const unsubscribe = remoteQnaStorage.subscribe((remoteData, offset) => {
-      suppressRemoteSaveRef.current = true;
       setServerOffsetMs(offset);
+      dataRef.current = remoteData;
       setData(remoteData);
       localQnaStorage.save(remoteData);
-    });
+      setSyncStatus('online');
+    }, (status) => setSyncStatus((current) => (current === 'saving' ? current : status)));
 
     return () => {
       active = false;
       unsubscribe();
-      if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current);
     };
   }, []);
 
@@ -64,7 +86,7 @@ export function useQnaData() {
   const currentQuestion = sessionQuestions.find((question) => question.id === currentQuestionId && !question.completed) ?? null;
 
   const selectSession = (sessionId: string) => {
-    setData((prev) => ({ ...prev, selectedSessionId: sessionId }));
+    updateData((prev) => ({ ...prev, selectedSessionId: sessionId }));
   };
 
   const createSession = (title: string) => {
@@ -87,7 +109,7 @@ export function useQnaData() {
       },
     };
 
-    setData((prev) => ({
+    updateData((prev) => ({
       ...prev,
       sessions: [session, ...prev.sessions],
       selectedSessionId: session.id,
@@ -96,7 +118,7 @@ export function useQnaData() {
   };
 
   const deleteSession = (sessionId: string) => {
-    setData((prev) => {
+    updateData((prev) => {
       const sessions = prev.sessions.filter((session) => session.id !== sessionId);
       const currentQuestionIdBySession = { ...prev.currentQuestionIdBySession };
       delete currentQuestionIdBySession[sessionId];
@@ -128,7 +150,7 @@ export function useQnaData() {
       completed: false,
     };
 
-    setData((prev) => {
+    updateData((prev) => {
       const questions = [...prev.questions, question];
       const current = prev.currentQuestionIdBySession[selectedSession.id];
       return {
@@ -145,7 +167,7 @@ export function useQnaData() {
   const deleteQuestion = (questionId: string) => {
     if (!selectedSession) return;
 
-    setData((prev) => {
+    updateData((prev) => {
       const questions = prev.questions.filter((question) => question.id !== questionId);
       const scoped = questions.filter((question) => question.presentationId === selectedSession.id);
       const current = prev.currentQuestionIdBySession[selectedSession.id];
@@ -165,7 +187,7 @@ export function useQnaData() {
   const completeCurrentAndAdvance = () => {
     if (!selectedSession || !currentQuestionId) return;
 
-    setData((prev) => {
+    updateData((prev) => {
       const questions = prev.questions.map((question) =>
         question.id === currentQuestionId ? { ...question, completed: true } : question,
       );
@@ -184,7 +206,7 @@ export function useQnaData() {
 
   const updateMemo = (memo: string) => {
     if (!selectedSession) return;
-    setData((prev) => ({
+    updateData((prev) => ({
       ...prev,
       sessions: prev.sessions.map((session) => (session.id === selectedSession.id ? { ...session, memo } : session)),
     }));
@@ -192,7 +214,7 @@ export function useQnaData() {
 
   const updateMaterial = (material: PresentationMaterial | null) => {
     if (!selectedSession) return;
-    setData((prev) => ({
+    updateData((prev) => ({
       ...prev,
       sessions: prev.sessions.map((session) => (session.id === selectedSession.id ? { ...session, material } : session)),
     }));
@@ -200,7 +222,7 @@ export function useQnaData() {
 
   const updateTiming = (timing: PresentationTiming) => {
     if (!selectedSession) return;
-    setData((prev) => ({
+    updateData((prev) => ({
       ...prev,
       sessions: prev.sessions.map((session) => (session.id === selectedSession.id ? { ...session, timing } : session)),
     }));
@@ -213,6 +235,7 @@ export function useQnaData() {
     currentQuestion,
     currentQuestionId,
     serverOffsetMs,
+    syncStatus,
     createSession,
     selectSession,
     deleteSession,
